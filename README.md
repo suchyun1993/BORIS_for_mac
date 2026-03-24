@@ -76,7 +76,3 @@ When publishing:
 - keep attribution to upstream BORIS and its author(s)
 - when shipping binaries (`.app`/`.dmg`), provide corresponding source code for that exact release tag
 - preserve notices for bundled third-party components and comply with their licenses
-
-If you want stricter release hygiene, add a top-level `LICENSE` file (GPL-3.0-or-later text) and a `THIRD_PARTY_NOTICES.md`.
-
-For GPL-derived maintenance, either option works as long as source and notices are properly provided.
