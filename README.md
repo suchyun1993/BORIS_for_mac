@@ -1,6 +1,6 @@
 # BORIS_for_Mac
 
-`BORIS_for_Mac` is a macOS-focused build derived from [BORIS](https://github.com/olivierfriard/BORIS) (Behavioral Observation Research Interactive Software).
+`BORIS_for_Mac` is a ARM-based macOS-focused build derived from [BORIS](https://github.com/olivierfriard/BORIS) (Behavioral Observation Research Interactive Software).
 
 This repository keeps the BORIS core workflow, and adds a mac-oriented embedded playback path, packaging scripts, and Homebrew cask release tooling.
 
@@ -64,17 +64,6 @@ Maintainer cask refresh:
 ./scripts/update_homebrew_cask.sh 2.0.0 <github_user>/<github_repo>
 ```
 
-## What To Upload To GitHub
-
-For each release:
-
-1. Push source code repo (this repository) with a version tag like `v2.0.0`.
-2. Upload DMG asset to that GitHub Release:
-   - `BORIS_for_Mac-2.0.0-arm64.dmg`
-3. Push your tap repository (`homebrew-boris-for-mac`) with updated:
-   - `Casks/boris-for-mac.rb`
-
-Recommended to also publish SHA256 in release notes.
 
 ## License & Copyright Notes
 
@@ -102,12 +91,3 @@ Two valid options:
   - manually sync upstream changes as needed
 
 For GPL-derived maintenance, either option works as long as source and notices are properly provided.
-
-## 中文说明（简版）
-
-- 这个仓库是基于原版 BORIS 的 mac 定制分支，不是官方发行版。
-- 发布时建议：
-  1. 上传完整源码（本仓库）并打 `vX.Y.Z` tag  
-  2. 在 Release 上传对应 DMG  
-  3. 更新并发布 Homebrew tap 的 cask  
-- 版权/许可上，务必保留原作者头部声明，并按 GPL 要求提供与二进制版本对应的源码。
