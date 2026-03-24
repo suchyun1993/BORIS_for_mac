@@ -52,8 +52,9 @@ Output example:
 User install:
 
 ```bash
-brew tap <github_user>/boris-for-mac
+brew tap suchyun1993/boris-for-mac
 brew install --cask boris-for-mac
+
 ```
 
 Maintainer cask refresh:
