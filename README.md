@@ -79,15 +79,4 @@ When publishing:
 
 If you want stricter release hygiene, add a top-level `LICENSE` file (GPL-3.0-or-later text) and a `THIRD_PARTY_NOTICES.md`.
 
-## Fork Strategy
-
-Two valid options:
-
-- **Option A (recommended): fork upstream BORIS**
-  - best traceability to upstream history
-  - easy to show your delta in PR-like form
-- **Option B: independent repository**
-  - keep `upstream` remote pointing to original BORIS
-  - manually sync upstream changes as needed
-
 For GPL-derived maintenance, either option works as long as source and notices are properly provided.
