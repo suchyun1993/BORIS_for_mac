@@ -3,7 +3,7 @@
 ## Build Standalone App
 
 ```bash
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/build_boris_for_mac_app.sh 2.0.0
+./scripts/build_boris_for_mac_app.sh 2.0.0
 ```
 
 Output app:
@@ -13,7 +13,7 @@ Output app:
 ## Build DMG
 
 ```bash
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/build_boris_for_mac_dmg.sh 2.0.0
+./scripts/build_boris_for_mac_dmg.sh 2.0.0
 ```
 
 Output DMG:
@@ -23,9 +23,9 @@ Output DMG:
 ## Update Homebrew Cask Template
 
 ```bash
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/update_homebrew_cask.sh 2.0.0 yourname BORIS_for_Mac
+./scripts/update_homebrew_cask.sh 2.0.0 suchyun1993 BORIS_for_Mac
 # or
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/update_homebrew_cask.sh 2.0.0 yourname/BORIS_for_Mac
+./scripts/update_homebrew_cask.sh 2.0.0 suchyun1993/BORIS_for_Mac
 ```
 
 Output cask:
@@ -39,6 +39,6 @@ Output cask:
 3. Users install via:
 
 ```bash
-brew tap yourname/boris-for-mac
+brew tap suchyun1993/boris-for-mac
 brew install --cask boris-for-mac
 ```

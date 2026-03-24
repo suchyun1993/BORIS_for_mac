@@ -32,14 +32,14 @@ This is **not** an official BORIS release. It is a maintained downstream variant
 ## Run From Source (local dev)
 
 ```bash
-/Users/yun/Codex_projects/BORIS-stable-external/launch.command
+./launch.command
 ```
 
 ## Build Standalone App + DMG
 
 ```bash
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/build_boris_for_mac_app.sh 2.0.0
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/build_boris_for_mac_dmg.sh 2.0.0
+./scripts/build_boris_for_mac_app.sh 2.0.0
+./scripts/build_boris_for_mac_dmg.sh 2.0.0
 ```
 
 Output example:
@@ -59,9 +59,9 @@ brew install --cask boris-for-mac
 Maintainer cask refresh:
 
 ```bash
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/update_homebrew_cask.sh 2.0.0 <github_user> <github_repo>
+./scripts/update_homebrew_cask.sh 2.0.0 <github_user> <github_repo>
 # or
-/Users/yun/Codex_projects/BORIS-stable-external/scripts/update_homebrew_cask.sh 2.0.0 <github_user>/<github_repo>
+./scripts/update_homebrew_cask.sh 2.0.0 <github_user>/<github_repo>
 ```
 
 ## What To Upload To GitHub

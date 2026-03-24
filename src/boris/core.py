@@ -398,10 +398,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             w.setVisible(False)
             w.keyPressEvent = self.keyPressEvent
 
-        # if BORIS is running on Mac lock all dockwidget features
-        # because Qdockwidgets may have a strange behavior
+        # On macOS default to unlocked dockwidgets so users can rearrange
+        # panels immediately on first launch.
         if sys.platform.startswith("darwin"):
-            self.action_block_dockwidgets.setChecked(True)
+            self.action_block_dockwidgets.setChecked(False)
             self.block_dockwidgets()
 
         self.obs_info_font_size = 9

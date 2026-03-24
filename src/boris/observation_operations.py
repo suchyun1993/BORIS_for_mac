@@ -108,8 +108,8 @@ def _arrange_embedded_phase1_docks(self) -> None:
 
         # Widths: left / center / right
         self.resizeDocks([self.dwEthogram, player_dock, self.dwEvents], [260, 1200, 420], Qt.Orientation.Horizontal)
-        # Left column height split: ethogram / subjects
-        self.resizeDocks([self.dwEthogram, self.dwSubjects], [520, 180], Qt.Orientation.Vertical)
+        # Left column height split: ethogram / subjects (keep subjects clearly in lower-left area)
+        self.resizeDocks([self.dwEthogram, self.dwSubjects], [500, 260], Qt.Orientation.Vertical)
     except Exception:
         logging.exception("Unable to normalize embedded player dock layout")
 
