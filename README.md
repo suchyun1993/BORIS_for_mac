@@ -1,101 +1,113 @@
-BORIS (Behavioral Observation Research Interactive Software)
-===============================================================
+# BORIS_for_Mac
 
+`BORIS_for_Mac` is a macOS-focused build derived from [BORIS](https://github.com/olivierfriard/BORIS) (Behavioral Observation Research Interactive Software).
 
-![BORIS logo](https://github.com/olivierfriard/BORIS/blob/master/boris/icons/logo_boris.png?raw=true)
+This repository keeps the BORIS core workflow, and adds a mac-oriented embedded playback path, packaging scripts, and Homebrew cask release tooling.
 
-BORIS is an easy-to-use event logging software for video/audio coding or live observations.
+## Upstream Relationship
 
-BORIS is a free and open-source software available for GNU/Linux, Windows and macOS.
+- Upstream project: `olivierfriard/BORIS`
+- This project: customized macOS variant for your workflow and deployment
+- Base code copyright remains with original BORIS authors where indicated in source headers
 
-It provides also some analysis tools like time budget and some plotting functions.
+This is **not** an official BORIS release. It is a maintained downstream variant.
 
-<!-- The BO-RIS paper has more than [![BORIS citations counter](https://penelope.unito.it/friard/boris_scopus_citations.png) citations](https://www.boris.unito.it/citations) in peer-reviewed scientific publications. -->
+## What Is Different Here
 
+- macOS-specific launch profile (`BORIS_for_Mac`) and separate config paths
+- embedded player path tuned for current mac usage
+- standalone app packaging via PyInstaller
+- DMG build pipeline
+- Homebrew tap/cask update helper scripts
 
-The BORIS paper has more than 2616 citations in peer-reviewed scientific publications.
+## Repository Layout
 
+- `src/boris/`: BORIS application source (including local modifications)
+- `launch.command`: local source-run launcher profile
+- `packaging/pyinstaller/`: standalone app build entry/spec/runtime hooks
+- `scripts/build_boris_for_mac_app.sh`: build `.app`
+- `scripts/build_boris_for_mac_dmg.sh`: build `.dmg`
+- `scripts/update_homebrew_cask.sh`: update cask metadata from local DMG
 
+## Run From Source (local dev)
 
-
-See the official [BORIS web site](https://www.boris.unito.it).
-
-<a href="https://www.boris.unito.it" target="_blank"><img alt="Website" src="https://img.shields.io/website?url=https%3A%2F%2Fwww.boris.unito.it"></a>
-<a href="https://www.boris.unito.it/user_guide/" target="_blank"><img alt="User guide" src="https://img.shields.io/badge/Documentation-orange"></a>
-[![Python web site](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org)
-![Python versions](https://img.shields.io/pypi/pyversions/boris-behav-obs)
-![BORIS license](https://img.shields.io/pypi/l/boris-behav-obs)
-[![PyPI version](https://img.shields.io/pypi/v/boris-behav-obs.svg)](https://pypi.org/project/boris-behav-obs/)
-
-[![Number of downloads](https://static.pepy.tech/personalized-badge/boris-behav-obs?period=total&units=international_system&left_color=black&right_color=orange&left_text=Downloads)](https://pepy.tech/project/boris-behav-obs)
-![commit-activity](https://img.shields.io/github/commit-activity/m/olivierfriard/BORIS)
-![GitHub last commit](https://img.shields.io/github/last-commit/olivierfriard/BORIS)
-
-![BORIS scopus citations badge](https://penelope.unito.it/friard/boris_scopus_citations.svg)
-
-
-![GitHub Repo stars](https://img.shields.io/github/stars/olivierfriard/BORIS?style=flat&label=Stars)
-[![Please Star](https://img.shields.io/badge/⭐-Star%20this%20repo-blue?style=flat-square)](https://github.com/olivierfriard/BORIS/stargazers)
-
-# Documentation
-
-
-
-The [user guide](https://www.boris.unito.it/user_guide/) provides a good starting point for learning how to use BORIS.
-
-Some [video tutorials](https://www.boris.unito.it/video_tutorials/) are available.
-
-
-
-
-
-# Bug reports and feature requests
-
-
-To search for bugs, report them or request a feature, please use the [GitHub issues tracker](https://github.com/olivierfriard/BORIS/issues)
-
-
-
-
-
-# Citing BORIS
-
-
-Please acknowledge and cite the use of this software and its authors when
-results are used in publications or published elsewhere. You can use the
-following BibTex entry
-
-```
-@article {MEE3:MEE312584,
-    author = {Friard, Olivier and Gamba, Marco},
-   title = {BORIS: a free, versatile open-source event-logging software for video/audio coding and live observations},
-   journal = {Methods in Ecology and Evolution},
-   issn = {2041-210X},
-   url = {http://dx.doi.org/10.1111/2041-210X.12584},
-   doi = {10.1111/2041-210X.12584},
-   pages = {1324--1330},
-    year = {2016},
-}
+```bash
+/Users/yun/Codex_projects/BORIS-stable-external/launch.command
 ```
 
-You can also send us a nice postcard! See the [user testimonials](https://www.boris.unito.it/postcards).
+## Build Standalone App + DMG
 
+```bash
+/Users/yun/Codex_projects/BORIS-stable-external/scripts/build_boris_for_mac_app.sh 2.0.0
+/Users/yun/Codex_projects/BORIS-stable-external/scripts/build_boris_for_mac_dmg.sh 2.0.0
+```
 
+Output example:
 
+- `/Users/yun/Codex_projects/dist/BORIS_for_Mac.app`
+- `/Users/yun/Codex_projects/dist/BORIS_for_Mac-2.0.0-arm64.dmg`
 
+## Homebrew (Tap + Cask)
 
+User install:
 
+```bash
+brew tap <github_user>/boris-for-mac
+brew install --cask boris-for-mac
+```
 
+Maintainer cask refresh:
 
-# Licence
+```bash
+/Users/yun/Codex_projects/BORIS-stable-external/scripts/update_homebrew_cask.sh 2.0.0 <github_user> <github_repo>
+# or
+/Users/yun/Codex_projects/BORIS-stable-external/scripts/update_homebrew_cask.sh 2.0.0 <github_user>/<github_repo>
+```
 
+## What To Upload To GitHub
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+For each release:
 
+1. Push source code repo (this repository) with a version tag like `v2.0.0`.
+2. Upload DMG asset to that GitHub Release:
+   - `BORIS_for_Mac-2.0.0-arm64.dmg`
+3. Push your tap repository (`homebrew-boris-for-mac`) with updated:
+   - `Casks/boris-for-mac.rb`
 
-Distributed with a [GPL v.3 license](LICENSE.TXT).
+Recommended to also publish SHA256 in release notes.
 
-Copyright (C) 2012-2025 Olivier Friard
+## License & Copyright Notes
+
+This repository is a derivative of BORIS and should be distributed under GPL-compatible terms consistent with upstream headers (BORIS source files indicate GNU GPL v3 or later).
+
+When publishing:
+
+- keep original copyright/license headers in source files
+- clearly state it is a downstream/custom variant of BORIS
+- keep attribution to upstream BORIS and its author(s)
+- when shipping binaries (`.app`/`.dmg`), provide corresponding source code for that exact release tag
+- preserve notices for bundled third-party components and comply with their licenses
+
+If you want stricter release hygiene, add a top-level `LICENSE` file (GPL-3.0-or-later text) and a `THIRD_PARTY_NOTICES.md`.
+
+## Fork Strategy
+
+Two valid options:
+
+- **Option A (recommended): fork upstream BORIS**
+  - best traceability to upstream history
+  - easy to show your delta in PR-like form
+- **Option B: independent repository**
+  - keep `upstream` remote pointing to original BORIS
+  - manually sync upstream changes as needed
+
+For GPL-derived maintenance, either option works as long as source and notices are properly provided.
+
+## 中文说明（简版）
+
+- 这个仓库是基于原版 BORIS 的 mac 定制分支，不是官方发行版。
+- 发布时建议：
+  1. 上传完整源码（本仓库）并打 `vX.Y.Z` tag  
+  2. 在 Release 上传对应 DMG  
+  3. 更新并发布 Homebrew tap 的 cask  
+- 版权/许可上，务必保留原作者头部声明，并按 GPL 要求提供与二进制版本对应的源码。

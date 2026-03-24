@@ -1,11 +1,25 @@
-*.py[oc]
-__pycache__/
+# macOS
 .DS_Store
-*.egg-info
-build
-dist
-.vscode
-tests/output
-boris_behav_obs.egg-info
-.venv
-uv.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Build artifacts
+build/
+dist/
+*.dmg
+*.app/
+
+# PyInstaller cache/work
+.pyinstaller/
+.mplconfig/
+
+# Local logs/temp
+*.log
+*.tmp
+*.bak
+
+# Local runtime/config files (user-specific)
+.env

@@ -1,0 +1,711 @@
+"""
+BORIS
+Behavioral Observation Research Interactive Software
+Copyright 2012-2026 Olivier Friard
+
+This file is part of BORIS.
+
+  BORIS is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 3 of the License, or
+  any later version.
+
+  BORIS is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not see <http://www.gnu.org/licenses/>.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import subprocess
+from collections import defaultdict
+from pathlib import Path
+
+from PIL import Image as PILImage
+from PySide6.QtCore import QByteArray, QPoint, QRectF, QBuffer, QIODevice, QObject, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+
+
+class _NoopOverlay:
+    def update(self, *_args, **_kwargs):
+        return None
+
+    def remove(self):
+        return None
+
+
+class _EmbeddedVideoFrame(QWidget):
+    interaction_signal = Signal(str, QPoint)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._image = QImage()
+        self._zoom = 0.0
+        self._pan_x = 0.0
+        self._pan_y = 0.0
+        self._rotation = 0
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
+
+    def clear_frame(self) -> None:
+        self._image = QImage()
+        self.update()
+
+    def set_frame(self, image: QImage) -> None:
+        self._image = image.copy()
+        self.update()
+
+    def set_view_state(self, zoom: float, pan_x: float, pan_y: float, rotation: int) -> None:
+        self._zoom = zoom
+        self._pan_x = pan_x
+        self._pan_y = pan_y
+        self._rotation = rotation
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("black"))
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+
+        if self._image.isNull():
+            return
+
+        iw = float(self._image.width())
+        ih = float(self._image.height())
+        if iw <= 0 or ih <= 0 or self.width() <= 0 or self.height() <= 0:
+            return
+
+        fit_scale = min(self.width() / iw, self.height() / ih)
+        zoom_scale = 2 ** self._zoom
+        draw_w = iw * fit_scale * zoom_scale
+        draw_h = ih * fit_scale * zoom_scale
+
+        center_x = (self.width() / 2.0) + (self._pan_x * draw_w)
+        center_y = (self.height() / 2.0) + (self._pan_y * draw_h)
+
+        painter.translate(center_x, center_y)
+        if self._rotation:
+            painter.rotate(self._rotation)
+
+        target = QRectF(-draw_w / 2.0, -draw_h / 2.0, draw_w, draw_h)
+        painter.drawImage(target, self._image)
+
+    def mouseMoveEvent(self, event) -> None:
+        self.interaction_signal.emit("MOUSE_MOVE", event.position().toPoint())
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        command = "MBTN_LEFT" if event.button() == Qt.MouseButton.LeftButton else "MBTN_RIGHT"
+        self.interaction_signal.emit(command, event.position().toPoint())
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        command = "MBTN_LEFT_DBL" if event.button() == Qt.MouseButton.LeftButton else "MBTN_RIGHT_DBL"
+        self.interaction_signal.emit(command, event.position().toPoint())
+        super().mouseDoubleClickEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        modifiers = event.modifiers()
+        delta_x = event.angleDelta().x()
+        delta_y = event.angleDelta().y()
+
+        if modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+            if modifiers & Qt.KeyboardModifier.ShiftModifier and abs(delta_x) > abs(delta_y):
+                delta_positive = delta_x > 0
+            else:
+                delta_positive = delta_y > 0 if delta_y != 0 else delta_x > 0
+            command = "Ctrl+WHEEL_UP" if delta_positive else "Ctrl+WHEEL_DOWN"
+        else:
+            super().wheelEvent(event)
+            return
+
+        self.interaction_signal.emit(command, event.position().toPoint())
+        super().wheelEvent(event)
+
+
+class QtFFmpegPlayerBackend(QObject):
+    def __init__(self, container: QWidget, parent=None, player_id: int = 0):
+        super().__init__(container)
+        self.parent_window = parent
+        self.player_id = player_id
+        self.ffmpeg_bin = getattr(parent, "ffmpeg_bin", "ffmpeg")
+        self.log_handler = None
+
+        self.display = _EmbeddedVideoFrame(container)
+        self.display.interaction_signal.connect(self._handle_interaction)
+
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.display)
+
+        self.audio_output = QAudioOutput(container)
+        self.media_player = QMediaPlayer(container)
+        self.media_player.setAudioOutput(self.audio_output)
+
+        self.video_sink = QVideoSink(container)
+        self.media_player.setVideoOutput(self.video_sink)
+
+        self.video_sink.videoFrameChanged.connect(self._on_video_frame_changed)
+        self.media_player.positionChanged.connect(self._on_position_changed)
+        self.media_player.durationChanged.connect(self._on_duration_changed)
+        self.media_player.mediaStatusChanged.connect(self._on_media_status_changed)
+        self.media_player.errorOccurred.connect(self._on_error)
+
+        self._playlist: list[str] = []
+        self._playlist_pos = 0
+        self._media_metadata: dict[str, dict] = {}
+        self._current_frame = QImage()
+        self._current_duration_seconds: float | None = None
+        self._preview_position_ms: int | None = None
+        self._desired_pause = True
+        self._muted = False
+        self._speed = 1.0
+        self._eof_reached = False
+        self._pending_position_ms = 0
+        self._source_loading = False
+        self._prime_pause_pending = False
+        self._temporary_prime_mute = False
+        self._frame_step_in_flight = False
+        self._frame_step_target_ms: int | None = None
+        self._notify_parent_after_frame_step = False
+
+        self.keep_open = True
+        self.keep_open_pause = False
+        self.image_display_duration = 1
+        self._video_zoom = 0.0
+        self._video_pan_x = 0.0
+        self._video_pan_y = 0.0
+        self._video_rotate = 0
+        self.sub_visibility = True
+        self.deinterlace = False
+        self.hwdec = "auto"
+        self.brightness = 0
+        self.contrast = 0
+        self.saturation = 0
+        self.gamma = 0
+        self.hue = 0
+        self.video_format = True
+        self.audio_bitrate = 1
+        self.mouse_pos = {"x": 0, "y": 0}
+
+        self._property_observers: dict[str, list] = defaultdict(list)
+        self._key_observers: dict[str, list] = defaultdict(list)
+
+        self.display.set_view_state(self._video_zoom, self._video_pan_x, self._video_pan_y, self._video_rotate)
+        self.audio_output.setVolume(0.5)
+
+    @property
+    def playlist(self) -> list[dict]:
+        return [{"filename": path} for path in self._playlist]
+
+    @property
+    def playlist_count(self) -> int:
+        return len(self._playlist)
+
+    @property
+    def playlist_pos(self) -> int:
+        return self._playlist_pos
+
+    @playlist_pos.setter
+    def playlist_pos(self, value: int) -> None:
+        if not self._playlist:
+            self._playlist_pos = 0
+            return
+
+        value = max(0, min(int(value), len(self._playlist) - 1))
+        if value == self._playlist_pos and self.media_player.source().isValid():
+            return
+
+        self._playlist_pos = value
+        self._load_current_source()
+
+    @property
+    def playing_pos(self) -> int:
+        return self.playlist_pos
+
+    @playing_pos.setter
+    def playing_pos(self, value: int) -> None:
+        self.playlist_pos = value
+
+    @property
+    def pause(self) -> bool:
+        return self._desired_pause
+
+    @pause.setter
+    def pause(self, value: bool) -> None:
+        self._desired_pause = bool(value)
+        if self._desired_pause:
+            self.media_player.pause()
+        else:
+            self.commit_preview_position()
+            self._prime_pause_pending = False
+            self._temporary_prime_mute = False
+            self._clear_eof()
+            self._apply_audio_state()
+            self.media_player.setPlaybackRate(self._speed)
+            self.media_player.play()
+
+    @property
+    def playback_time(self) -> float | None:
+        return self.time_pos
+
+    @property
+    def time_pos(self) -> float | None:
+        if not self._playlist or self.media_player.source().isEmpty():
+            return None
+        if self._preview_position_ms is not None:
+            return round(self._preview_position_ms / 1000.0, 3)
+        return round(self.media_player.position() / 1000.0, 3)
+
+    @property
+    def duration(self) -> float | None:
+        if self.media_player.duration() > 0:
+            return round(self.media_player.duration() / 1000.0, 3)
+        return self._current_duration_seconds
+
+    @property
+    def eof_reached(self) -> bool:
+        return self._eof_reached
+
+    @property
+    def core_idle(self) -> bool:
+        return self._eof_reached and self.pause
+
+    @property
+    def volume(self) -> int:
+        return round(self.audio_output.volume() * 100)
+
+    @volume.setter
+    def volume(self, value: int) -> None:
+        self.audio_output.setVolume(max(0.0, min(1.0, float(value) / 100.0)))
+
+    @property
+    def mute(self) -> bool:
+        return self._muted
+
+    @mute.setter
+    def mute(self, value: bool) -> None:
+        self._muted = bool(value)
+        self._apply_audio_state()
+
+    @property
+    def speed(self) -> float:
+        return self._speed
+
+    @speed.setter
+    def speed(self, value: float) -> None:
+        self._speed = float(value)
+        self.media_player.setPlaybackRate(self._speed)
+
+    @property
+    def width(self) -> int:
+        return self._current_frame.width() if not self._current_frame.isNull() else 0
+
+    @property
+    def height(self) -> int:
+        return self._current_frame.height() if not self._current_frame.isNull() else 0
+
+    @property
+    def estimated_frame_number(self) -> int | None:
+        fps = self._current_fps()
+        time_pos = self.time_pos
+        if time_pos is None or fps <= 0:
+            return None
+        return max(0, int(round(time_pos * fps)))
+
+    @property
+    def video_zoom(self) -> float:
+        return self._video_zoom
+
+    @video_zoom.setter
+    def video_zoom(self, value: float) -> None:
+        self._video_zoom = float(value)
+        self._refresh_view()
+
+    @property
+    def video_pan_x(self) -> float:
+        return self._video_pan_x
+
+    @video_pan_x.setter
+    def video_pan_x(self, value: float) -> None:
+        self._video_pan_x = float(value)
+        self._refresh_view()
+
+    @property
+    def video_pan_y(self) -> float:
+        return self._video_pan_y
+
+    @video_pan_y.setter
+    def video_pan_y(self, value: float) -> None:
+        self._video_pan_y = float(value)
+        self._refresh_view()
+
+    @property
+    def video_rotate(self) -> int:
+        return self._video_rotate
+
+    @video_rotate.setter
+    def video_rotate(self, value: int) -> None:
+        self._video_rotate = int(value)
+        self._refresh_view()
+
+    def set_media_metadata(self, media_path: str, *, fps: float | None = None, duration: float | None = None) -> None:
+        self._media_metadata.setdefault(media_path, {})
+        if fps is not None:
+            self._media_metadata[media_path]["fps"] = float(fps)
+        if duration is not None:
+            self._media_metadata[media_path]["duration"] = float(duration)
+
+    def wait_until_playing(self) -> None:
+        return None
+
+    def playlist_append(self, media_path: str) -> None:
+        self._playlist.append(media_path)
+        if len(self._playlist) == 1:
+            self._playlist_pos = 0
+            self._load_current_source()
+
+    def playlist_replace(self, media_path: str) -> None:
+        self._playlist = [media_path]
+        self._playlist_pos = 0
+        self._load_current_source()
+
+    def playlist_prev(self) -> None:
+        if self._playlist_pos > 0:
+            self.playlist_pos = self._playlist_pos - 1
+
+    def playlist_next(self) -> None:
+        if self._playlist_pos + 1 < len(self._playlist):
+            self.playlist_pos = self._playlist_pos + 1
+
+    def seek(self, value, _mode: str = "absolute") -> None:
+        seconds = max(0.0, float(value))
+        self._pending_position_ms = round(seconds * 1000)
+        self._preview_position_ms = None
+        self._clear_eof()
+        if self.media_player.source().isValid() and not self._source_loading:
+            self.media_player.setPosition(self._pending_position_ms)
+        if self._desired_pause:
+            self._prime_current_frame()
+
+    def frame_step(self) -> None:
+        fps = max(self._current_fps(), 1.0)
+        current_ms = self._preview_position_ms if self._preview_position_ms is not None else self.media_player.position()
+        target_ms = max(0, current_ms + max(1, round(1000.0 / fps)))
+        if self._desired_pause and self.preview_seek(target_ms / 1000.0):
+            return
+        if self._frame_step_in_flight:
+            return
+        self._frame_step_in_flight = True
+        self._frame_step_target_ms = target_ms
+        self._notify_parent_after_frame_step = True
+        self.pause = True
+        self.seek(target_ms / 1000.0, "absolute")
+        QTimer.singleShot(150, self._release_frame_step_guard)
+
+    def frame_back_step(self) -> None:
+        fps = max(self._current_fps(), 1.0)
+        current_ms = self._preview_position_ms if self._preview_position_ms is not None else self.media_player.position()
+        target_ms = max(0, current_ms - max(1, round(1000.0 / fps)))
+        if self._desired_pause and self.preview_seek(target_ms / 1000.0):
+            return
+        if self._frame_step_in_flight:
+            return
+        self._frame_step_in_flight = True
+        self._frame_step_target_ms = target_ms
+        self._notify_parent_after_frame_step = True
+        self.pause = True
+        self.seek(target_ms / 1000.0, "absolute")
+        QTimer.singleShot(150, self._release_frame_step_guard)
+
+    def scrub_seek(self, seconds: float) -> bool:
+        if self._frame_step_in_flight:
+            return False
+
+        target_ms = max(0, round(float(seconds) * 1000))
+        if self._desired_pause and self.preview_seek(target_ms / 1000.0):
+            return True
+        self._frame_step_in_flight = True
+        self._frame_step_target_ms = target_ms
+        self._notify_parent_after_frame_step = True
+        self.pause = True
+        self.seek(target_ms / 1000.0, "absolute")
+        QTimer.singleShot(220, self._release_frame_step_guard)
+        return True
+
+    def preview_seek(self, seconds: float) -> bool:
+        image = self._ffmpeg_qimage_at(seconds)
+        if image is None or image.isNull():
+            return False
+
+        self._preview_position_ms = max(0, round(float(seconds) * 1000))
+        self._current_frame = image.copy()
+        self.display.set_frame(self._current_frame)
+        self.display.repaint()
+        if getattr(self.parent_window, "observationId", ""):
+            try:
+                self.parent_window.mpv_timer_out(value=round(self._preview_position_ms / 1000.0, 3))
+            except Exception:
+                logging.exception("Unable to refresh UI after preview seek")
+        return True
+
+    def commit_preview_position(self) -> None:
+        if self._preview_position_ms is None:
+            return
+        if self.media_player.source().isValid() and not self._source_loading:
+            self._pending_position_ms = self._preview_position_ms
+            self.media_player.setPosition(self._preview_position_ms)
+        self._preview_position_ms = None
+
+    def screenshot_to_file(self, file_path: str) -> None:
+        image = self.screenshot_raw()
+        if image is not None:
+            image.save(file_path)
+
+    def screenshot_raw(self):
+        if not self._current_frame.isNull():
+            return self._qimage_to_pil(self._current_frame)
+        return self._ffmpeg_screenshot()
+
+    def create_image_overlay(self):
+        return _NoopOverlay()
+
+    def stop(self) -> None:
+        self._desired_pause = True
+        self.media_player.stop()
+        self._pending_position_ms = 0
+        self._preview_position_ms = None
+        self._clear_eof()
+
+    def terminate(self) -> None:
+        self.stop()
+        self.media_player.setSource(QUrl())
+        self._current_frame = QImage()
+        self.display.clear_frame()
+
+    def on_key_press(self, keydef, mode="force"):
+        del mode
+
+        def decorator(func):
+            self._key_observers[keydef].append(func)
+            return func
+
+        return decorator
+
+    def property_observer(self, name):
+        def decorator(func):
+            self._property_observers[name].append(func)
+            return func
+
+        return decorator
+
+    def _handle_interaction(self, command: str, pos: QPoint) -> None:
+        self.mouse_pos["x"] = pos.x()
+        self.mouse_pos["y"] = pos.y()
+        if command == "MOUSE_MOVE":
+            return
+        for callback in self._key_observers.get(command, []):
+            try:
+                callback()
+            except Exception:
+                logging.exception("Video interaction callback failed")
+
+    def _load_current_source(self) -> None:
+        if not self._playlist:
+            return
+
+        source = self._playlist[self._playlist_pos]
+        self._current_frame = QImage()
+        self.display.clear_frame()
+        self._current_duration_seconds = self._media_metadata.get(source, {}).get("duration")
+        self._preview_position_ms = None
+        self._clear_eof()
+        self._source_loading = True
+        self.media_player.stop()
+        self.media_player.setSource(QUrl.fromLocalFile(source))
+        self.media_player.setPlaybackRate(self._speed)
+
+        if not self._desired_pause and not self._source_loading:
+            self._apply_audio_state()
+            self.media_player.play()
+
+    def _prime_current_frame(self) -> None:
+        if not self._playlist or not self._desired_pause or self._prime_pause_pending:
+            return
+        self._prime_pause_pending = True
+        self._temporary_prime_mute = not self._muted
+        if self._temporary_prime_mute:
+            self.audio_output.setMuted(True)
+        self.media_player.setPlaybackRate(self._speed)
+        self.media_player.play()
+
+    def _apply_audio_state(self) -> None:
+        self.audio_output.setMuted(self._muted)
+
+    def _current_source(self) -> str | None:
+        if not self._playlist:
+            return None
+        return self._playlist[self._playlist_pos]
+
+    def _current_fps(self) -> float:
+        source = self._current_source()
+        if not source:
+            return 25.0
+        return float(self._media_metadata.get(source, {}).get("fps", 25.0))
+
+    def _clear_eof(self) -> None:
+        if self._eof_reached:
+            self._eof_reached = False
+            self._emit_property("eof-reached", False)
+
+    def _on_duration_changed(self, duration_ms: int) -> None:
+        if duration_ms > 0:
+            self._current_duration_seconds = round(duration_ms / 1000.0, 3)
+
+    def _on_position_changed(self, position_ms: int) -> None:
+        if self._preview_position_ms is None:
+            self._emit_property("time-pos", round(position_ms / 1000.0, 3))
+        else:
+            self._emit_property("time-pos", round(self._preview_position_ms / 1000.0, 3))
+        if self.duration is not None and position_ms >= round(self.duration * 1000):
+            self._eof_reached = True
+
+    def _on_media_status_changed(self, status) -> None:
+        if status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+            if self._source_loading:
+                self._source_loading = False
+                self.media_player.setPosition(self._pending_position_ms)
+                if self._desired_pause:
+                    if self._current_frame.isNull() or abs(self.media_player.position() - self._pending_position_ms) > 50:
+                        self._prime_current_frame()
+                    else:
+                        self.media_player.pause()
+                else:
+                    self._apply_audio_state()
+                    self.media_player.play()
+            return
+
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self._eof_reached = True
+            self._emit_property("eof-reached", True)
+            self.media_player.pause()
+
+    def _on_video_frame_changed(self, frame) -> None:
+        image = frame.toImage()
+        if image.isNull():
+            return
+
+        self._current_frame = image.copy()
+        self.display.set_frame(self._current_frame)
+        self._release_frame_step_guard()
+
+        if self._notify_parent_after_frame_step and getattr(self.parent_window, "observationId", ""):
+            self._notify_parent_after_frame_step = False
+            try:
+                self.parent_window.mpv_timer_out()
+            except Exception:
+                logging.exception("Unable to refresh UI after frame step")
+
+        if self._prime_pause_pending:
+            self._prime_pause_pending = False
+            self.media_player.pause()
+            if self._temporary_prime_mute:
+                self._temporary_prime_mute = False
+                self._apply_audio_state()
+
+    def _on_error(self, error, error_string: str) -> None:
+        logging.error(f"Qt embedded player #{self.player_id + 1} error {error}: {error_string}")
+
+    def _refresh_view(self) -> None:
+        self.display.set_view_state(self._video_zoom, self._video_pan_x, self._video_pan_y, self._video_rotate)
+
+    def _emit_property(self, name: str, value) -> None:
+        for callback in self._property_observers.get(name, []):
+            try:
+                callback(name, value)
+            except Exception:
+                logging.exception("Player property observer failed")
+
+    def _release_frame_step_guard(self) -> None:
+        self._frame_step_in_flight = False
+        self._frame_step_target_ms = None
+
+    def _ffmpeg_screenshot(self):
+        source = self._current_source()
+        if not source:
+            return None
+
+        try:
+            cmd = [
+                self.ffmpeg_bin,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{self.time_pos or 0.0:.3f}",
+                "-i",
+                source,
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "-",
+            ]
+            completed = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return PILImage.open(io.BytesIO(completed.stdout)).convert("RGBA")
+        except Exception:
+            logging.exception("Unable to extract screenshot with ffmpeg")
+            return None
+
+    def _ffmpeg_qimage_at(self, seconds: float) -> QImage | None:
+        source = self._current_source()
+        if not source:
+            return None
+
+        try:
+            cmd = [
+                self.ffmpeg_bin,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{max(0.0, float(seconds)):.3f}",
+                "-i",
+                source,
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "-",
+            ]
+            completed = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            image = QImage.fromData(completed.stdout, "PNG")
+            return image.copy() if not image.isNull() else None
+        except Exception:
+            logging.exception("Unable to extract preview frame with ffmpeg")
+            return None
+
+    @staticmethod
+    def _qimage_to_pil(image: QImage):
+        byte_array = QByteArray()
+        buffer = QBuffer(byte_array)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        buffer.close()
+        return PILImage.open(io.BytesIO(byte_array.data())).convert("RGBA")
