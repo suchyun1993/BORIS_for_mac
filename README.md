@@ -17,7 +17,7 @@ This is **not** an official BORIS release. It is a maintained downstream variant
 - macOS-specific launch profile (`BORIS_for_Mac`) and separate config paths
 - embedded player path tuned for current mac usage
 - standalone app packaging via PyInstaller
-- DMG build pipeline
+- Several new shortcuts for easily tuning video player
 - Homebrew tap/cask update helper scripts
 
 ## Repository Layout
