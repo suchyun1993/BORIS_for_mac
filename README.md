@@ -1,6 +1,6 @@
 # BORIS_for_Mac
 
-`BORIS_for_Mac` is a ARM-based macOS-focused build derived from [BORIS](https://github.com/olivierfriard/BORIS) (Behavioral Observation Research Interactive Software).
+`BORIS_for_Mac` is an ARM-based macOS-focused build derived from [BORIS](https://github.com/olivierfriard/BORIS) (Behavioral Observation Research Interactive Software).
 
 This repository keeps the BORIS core workflow, and adds a mac-oriented embedded playback path, packaging scripts, and Homebrew cask release tooling.
 
