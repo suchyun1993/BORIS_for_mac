@@ -95,21 +95,29 @@ def _arrange_embedded_phase1_docks(self) -> None:
         dock_widget.setVisible(True)
 
     # Force a deterministic default layout:
-    # left column (ethogram + subjects), center player, right events.
+    # left column (ethogram + subjects), center player, right events,
+    # while keeping the observation info panel as a compact bottom strip.
     self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dwEthogram)
     self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dwSubjects)
     self.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, player_dock)
     self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dwEvents)
 
+    self.setCorner(Qt.Corner.TopLeftCorner, Qt.DockWidgetArea.LeftDockWidgetArea)
+    self.setCorner(Qt.Corner.BottomLeftCorner, Qt.DockWidgetArea.LeftDockWidgetArea)
+    self.setCorner(Qt.Corner.TopRightCorner, Qt.DockWidgetArea.RightDockWidgetArea)
+    self.setCorner(Qt.Corner.BottomRightCorner, Qt.DockWidgetArea.RightDockWidgetArea)
+
     try:
-        self.splitDockWidget(self.dwEthogram, self.dwSubjects, Qt.Orientation.Vertical)
+        # Important: horizontal split first, then put Subjects under Ethogram.
+        # If vertical split is done first, Subjects can drift into a bottom-wide band.
         self.splitDockWidget(self.dwEthogram, player_dock, Qt.Orientation.Horizontal)
         self.splitDockWidget(player_dock, self.dwEvents, Qt.Orientation.Horizontal)
+        self.splitDockWidget(self.dwEthogram, self.dwSubjects, Qt.Orientation.Vertical)
 
         # Widths: left / center / right
         self.resizeDocks([self.dwEthogram, player_dock, self.dwEvents], [260, 1200, 420], Qt.Orientation.Horizontal)
-        # Left column height split: ethogram / subjects (keep subjects clearly in lower-left area)
-        self.resizeDocks([self.dwEthogram, self.dwSubjects], [500, 260], Qt.Orientation.Vertical)
+        # Left column height split: ethogram / subjects (subjects fixed in lower-left, compact)
+        self.resizeDocks([self.dwEthogram, self.dwSubjects], [560, 140], Qt.Orientation.Vertical)
     except Exception:
         logging.exception("Unable to normalize embedded player dock layout")
 

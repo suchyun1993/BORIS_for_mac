@@ -471,11 +471,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.verticalLayout_9.setSpacing(0)
         self.verticalLayout_10.setSpacing(1)
-        self.verticalLayout_10.setContentsMargins(6, 1, 6, 1)
+        self.verticalLayout_10.setContentsMargins(6, 0, 6, 0)
         self.verticalLayout_11.setContentsMargins(0, 0, 0, 0)
         self.verticalLayout_11.setSpacing(0)
         self.verticalSpacer_2.changeSize(20, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        self.w_obs_info.setMinimumHeight(62)
+        self.w_obs_info.setMinimumHeight(48)
         self.w_obs_info.layout().invalidate()
 
     def capture_events_view_state(self) -> dict | None:
@@ -1960,6 +1960,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """
         The keypress event is received from widget and reemitted
         """
+        if not isinstance(event, QKeyEvent):
+            return
+        if event.type() != QEvent.Type.KeyPress:
+            return
         self.keyPressEvent(event)
 
     def reload_frame(self) -> None:
@@ -5037,6 +5041,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         ESC: 16777216
         """
 
+        if not isinstance(event, QKeyEvent):
+            return
+        if event.type() != QEvent.Type.KeyPress:
+            return
+
         # get modifiers
         modifiers = QApplication.keyboardModifiers()
         modifier = ""
@@ -5231,6 +5240,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             memLaps = self.getLaps()
 
         if memLaps is None:
+            return
+
+        # Guard against occasional spurious single-key events while the user
+        # is actively dragging/resizing window panes with the mouse.
+        if (
+            QApplication.mouseButtons() != Qt.MouseButton.NoButton
+            and ek not in (Qt.Key.Key_Enter, Qt.Key.Key_Return)
+            and ek_text
+            and len(ek_text) == 1
+            and not ctrl_or_meta
+        ):
+            logging.debug(f"Ignoring key while mouse button is pressed: {ek_text}")
             return
 
         if (
